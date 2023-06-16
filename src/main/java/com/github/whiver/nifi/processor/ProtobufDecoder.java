@@ -33,7 +33,11 @@ import com.github.whiver.nifi.exception.UnknownMessageTypeException;
 import com.github.whiver.nifi.service.ProtobufService;
 import com.google.protobuf.Descriptors.DescriptorValidationException;
 import com.google.protobuf.InvalidProtocolBufferException;
+import org.apache.nifi.annotation.behavior.EventDriven;
+import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SideEffectFree;
+import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.flowfile.FlowFile;
@@ -47,7 +51,10 @@ import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicReference;
 
 
+@EventDriven
 @SideEffectFree
+@SupportsBatching
+@InputRequirement(Requirement.INPUT_REQUIRED)
 @Tags({"Protobuf", "decoder", "Google Protocol Buffer"})
 @CapabilityDescription("Decode incoming data encoded using a Google Protocol Buffer Schema.")
 public class ProtobufDecoder extends ProtobufProcessor {
@@ -79,6 +86,7 @@ public class ProtobufDecoder extends ProtobufProcessor {
                     } else {
                         out.write(ProtobufService.decodeProtobuf(protobufSchema, compileSchema, messageType, in).getBytes());
                     }
+                    session.adjustCounter("protobuf decoded", 1, true);
                 } catch (DescriptorValidationException e) {
                     getLogger().error("Invalid schema file: " + e.getMessage(), e);
                     error.set(INVALID_SCHEMA);

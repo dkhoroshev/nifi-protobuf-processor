@@ -6,7 +6,7 @@
 
     <groupId>fr.whiver.nifi</groupId>
     <artifactId>nifi-protobuf-processor</artifactId>
-    <version>1.21.0</version>
+    <version>1.21.0.1</version>
     <packaging>nar</packaging>
 
     <developers>
