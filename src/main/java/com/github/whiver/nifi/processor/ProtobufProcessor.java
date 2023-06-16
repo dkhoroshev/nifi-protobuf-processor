@@ -63,6 +63,8 @@ public abstract class ProtobufProcessor extends AbstractProcessor {
      */
     private boolean compileSchema;
 
+    protected int batchsize;
+
 
     /*          PROPERTIES          */
 
@@ -87,6 +89,16 @@ public abstract class ProtobufProcessor extends AbstractProcessor {
             .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
             .build();
 
+    static final PropertyDescriptor BATCH_SIZE = new PropertyDescriptor.Builder()
+            .name("protobuf.batchsize")
+            .displayName("Batch Size")
+            .description("The number of FlowFiles to process in each batch.")
+            .defaultValue("10")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(true)
+            .build();
+
+
 
     /*          RELATIONSHIPS           */
 
@@ -110,6 +122,7 @@ public abstract class ProtobufProcessor extends AbstractProcessor {
         List<PropertyDescriptor> properties = new ArrayList<>();
         properties.add(PROTOBUF_SCHEMA);
         properties.add(COMPILE_SCHEMA);
+        properties.add(BATCH_SIZE);
         this.properties = Collections.unmodifiableList(properties);
 
         Set<Relationship> relationships = new HashSet<>();
@@ -156,6 +169,8 @@ public abstract class ProtobufProcessor extends AbstractProcessor {
             }
         } else if (descriptor == COMPILE_SCHEMA) {
             this.compileSchema = Boolean.parseBoolean(newValue);
+        } else if (descriptor == BATCH_SIZE) {
+            this.batchsize = Integer.parseInt(newValue);
         }
     }
 

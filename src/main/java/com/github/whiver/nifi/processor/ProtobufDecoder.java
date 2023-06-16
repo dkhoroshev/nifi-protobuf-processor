@@ -48,6 +48,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -63,52 +64,63 @@ public class ProtobufDecoder extends ProtobufProcessor {
     public void onTrigger(ProcessContext processContext, ProcessSession session) throws ProcessException {
         final AtomicReference<Relationship> error = new AtomicReference<>();
 
-        final FlowFile flowfile = session.get();
+        List<FlowFile> flowFiles = session.get(this.batchsize);
+//        if (flowFiles.isEmpty()) {
+//            // If there are no FlowFiles in the batch, exit the method
+//            return;
+//        }
+        try {
+            for (FlowFile flowfile: flowFiles) {
+                String protobufSchema = flowfile.getAttribute(PROTOBUF_SCHEMA.getName());
+                boolean compileSchema = processContext.getProperty(COMPILE_SCHEMA.getName()).asBoolean();
+                String messageType = flowfile.getAttribute("protobuf.messageType");
 
-        String protobufSchema = flowfile.getAttribute(PROTOBUF_SCHEMA.getName());
-        boolean compileSchema = processContext.getProperty(COMPILE_SCHEMA.getName()).asBoolean();
-        String messageType = flowfile.getAttribute("protobuf.messageType");
+                if (protobufSchema == null && this.schema == null) {
+                    getLogger().error("No schema path given, please fill in the " + PROTOBUF_SCHEMA.getName() +
+                            " property, either at processor or flowfile level..");
+                    session.transfer(flowfile, INVALID_SCHEMA);
+                } else if (messageType == null) {
+                    getLogger().error("Unable to find the message type in protobuf.messageType, unable to decode data.");
+                    session.transfer(flowfile, ERROR);
+                } else {
 
-        if (protobufSchema == null && this.schema == null) {
-            getLogger().error("No schema path given, please fill in the " + PROTOBUF_SCHEMA.getName() +
-                    " property, either at processor or flowfile level..");
-            session.transfer(flowfile, INVALID_SCHEMA);
-        } else if (messageType == null) {
-            getLogger().error("Unable to find the message type in protobuf.messageType, unable to decode data.");
-            session.transfer(flowfile, ERROR);
-        } else {
+                    // Write the results back out ot flow file
+                    FlowFile outputFlowfile = session.write(flowfile, (InputStream in, OutputStream out) -> {
+                        try {
+                            if (protobufSchema == null) {
+                                out.write(ProtobufService.decodeProtobuf(this.schema, messageType, in).getBytes());
+                            } else {
+                                out.write(ProtobufService.decodeProtobuf(protobufSchema, compileSchema, messageType, in).getBytes());
+                            }
+                            session.adjustCounter("protobuf decoded", 1, true);
+                        } catch (DescriptorValidationException e) {
+                            getLogger().error("Invalid schema file: " + e.getMessage(), e);
+                            error.set(INVALID_SCHEMA);
+                        } catch (SchemaLoadingException | SchemaCompilationException e) {
+                            getLogger().error(e.getMessage(), e);
+                            error.set(INVALID_SCHEMA);
+                        } catch (UnknownMessageTypeException | MessageDecodingException e) {
+                            getLogger().error(e.getMessage());
+                            error.set(ERROR);
+                        } catch (InvalidProtocolBufferException e) {
+                            getLogger().error("Unable to encode message into JSON: " + e.getMessage(), e);
+                            error.set(ERROR);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    });
 
-            // Write the results back out ot flow file
-            FlowFile outputFlowfile = session.write(flowfile, (InputStream in, OutputStream out) -> {
-                try {
-                    if (protobufSchema == null) {
-                        out.write(ProtobufService.decodeProtobuf(this.schema, messageType, in).getBytes());
+                    if (error.get() != null) {
+                        session.transfer(flowfile, error.get());
                     } else {
-                        out.write(ProtobufService.decodeProtobuf(protobufSchema, compileSchema, messageType, in).getBytes());
+                        session.transfer(outputFlowfile, SUCCESS);
+//                        session.remove(flowfile);
                     }
-                    session.adjustCounter("protobuf decoded", 1, true);
-                } catch (DescriptorValidationException e) {
-                    getLogger().error("Invalid schema file: " + e.getMessage(), e);
-                    error.set(INVALID_SCHEMA);
-                } catch (SchemaLoadingException | SchemaCompilationException e) {
-                    getLogger().error(e.getMessage(), e);
-                    error.set(INVALID_SCHEMA);
-                } catch (UnknownMessageTypeException | MessageDecodingException e) {
-                    getLogger().error(e.getMessage());
-                    error.set(ERROR);
-                } catch (InvalidProtocolBufferException e) {
-                    getLogger().error("Unable to encode message into JSON: " + e.getMessage(), e);
-                    error.set(ERROR);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
                 }
-            });
-
-            if (error.get() != null) {
-                session.transfer(flowfile, error.get());
-            } else {
-                session.transfer(outputFlowfile, SUCCESS);
             }
+            session.commit();
+        } catch (Exception e) {
+            getLogger().error("Error processing FlowFiles", e);
         }
     }
 }
